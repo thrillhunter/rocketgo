@@ -73,16 +73,14 @@ if err != nil {
 }
 ```
 
-`SendMessage` routes automatically based on the room type:
+`SendMessage` always sends via REST (`POST /chat.sendMessage`). E2EE rooms
+are encrypted client-side before the request leaves the process. This avoids a
+DDP schema validation quirk that rejects `Alias`, `Avatar`, and `Emoji` on
+some Rocket.Chat versions, while keeping encryption transparent.
 
-- **Plain rooms** — uses `POST /chat.postMessage` via REST. This correctly
-  handles `Alias`, `Avatar`, and `Emoji` on all Rocket.Chat server versions.
-- **E2EE rooms** — uses the DDP websocket so the client can encrypt the
-  payload before it leaves the process.
-
-This lets one real Rocket.Chat account, such as a webhook bot, present messages
-with a custom display name or avatar. The authenticated account is still the
-real sender on the Rocket.Chat side.
+One real Rocket.Chat account, such as a webhook bot, can present messages with
+a custom display name or avatar. The authenticated account is still the real
+sender on the Rocket.Chat side.
 
 Rocket.Chat requires the sending account to have the `message-impersonate`
 permission before it accepts `Alias`, `Avatar`, or `Emoji`.

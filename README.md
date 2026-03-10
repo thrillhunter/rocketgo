@@ -56,6 +56,31 @@ regardless of type.
 
 Full API reference on [pkg.go.dev](https://pkg.go.dev/github.com/thrillhunter/rocketgo).
 
+## Sending Messages
+
+Use `SendText()` for simple messages, or `SendMessage()` when you need extra
+message fields such as aliases, avatars, emoji avatars, threads, or custom
+fields.
+
+```go
+_, err := client.SendMessage(ctx, rocket.OutgoingMessage{
+	RoomID: roomID,
+	Text:   "deployment finished successfully",
+	Alias:  "Panel Notifications",
+	Emoji:  ":satellite:",
+})
+if err != nil {
+	panic(err)
+}
+```
+
+This lets one real Rocket.Chat user, such as a webhook bot, present messages
+with a custom display name or avatar. The authenticated account is still the
+real sender on the Rocket.Chat side.
+
+Rocket.Chat may require the sending account to have the `message-impersonate`
+permission before it accepts `Alias`, `Avatar`, or `Emoji`.
+
 ## Examples
 
 - [examples/say](https://github.com/thrillhunter/rocketgo/tree/main/examples/say) — echo bot that responds to `;say hello world`

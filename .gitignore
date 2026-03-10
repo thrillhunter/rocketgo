@@ -1,2 +1,4 @@
 .rocket/
 **/.rocket/
+.DS_Store
+**/.DS_Store

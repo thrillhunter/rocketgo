@@ -20,11 +20,9 @@ import (
 )
 
 const (
-	defaultEventBuffer    = 256
 	defaultHTTPTimeout    = 30 * time.Second
 	defaultInternalWait   = 30 * time.Second
 	defaultPersistenceDir = ".rocket"
-	criticalEventTimeout  = time.Second
 	reactionCacheLimit    = 2048
 )
 
@@ -41,7 +39,6 @@ type Config struct {
 	AllowedDownloadHosts []string
 	Logger               *slog.Logger
 	E2EE                 E2EEConfig
-	EventBuffer          int
 }
 
 type E2EEConfig struct {
@@ -57,53 +54,25 @@ type Session struct {
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
-type EventKind string
-
-const (
-	EventConnected           EventKind = "connected"
-	EventDisconnected        EventKind = "disconnected"
-	EventError               EventKind = "error"
-	EventMessage             EventKind = "message"
-	EventMessageReaction     EventKind = "message_reaction"
-	EventMessageDeleted      EventKind = "message_deleted"
-	EventTyping              EventKind = "typing"
-	EventUserActivity        EventKind = "user_activity"
-	EventRoomChanged         EventKind = "room_changed"
-	EventSubscriptionChanged EventKind = "subscription_changed"
-	EventNotification        EventKind = "notification"
-	EventRoomKeyRequested    EventKind = "room_key_requested"
-)
-
-type Event struct {
-	Kind         EventKind
-	Action       string
-	Time         time.Time
-	Raw          json.RawMessage
-	Message      *Message
-	Room         *Room
-	Subscription *Subscription
-	Typing       *TypingEvent
-	Activity     *UserActivityEvent
-	Delete       *DeleteEvent
-	Reaction     *MessageReactionEvent
-	Notification *NotificationEvent
-	KeyRequest   *RoomKeyRequestEvent
-	Err          error
-}
-
 type TypingEvent struct {
+	Time     time.Time
+	Raw      json.RawMessage
 	RoomID   string
 	Username string
 	Typing   bool
 }
 
 type UserActivityEvent struct {
+	Time       time.Time
+	Raw        json.RawMessage
 	RoomID     string
 	Username   string
 	Activities []string
 }
 
 type DeleteEvent struct {
+	Time      time.Time
+	Raw       json.RawMessage
 	RoomID    string
 	MessageID string
 }
@@ -115,16 +84,24 @@ type MessageReactionChange struct {
 }
 
 type MessageReactionEvent struct {
+	Action    string
+	Time      time.Time
+	Raw       json.RawMessage
+	Message   *Message
 	RoomID    string
 	MessageID string
 	Changes   []MessageReactionChange
 }
 
 type NotificationEvent struct {
+	Time    time.Time
+	Raw     json.RawMessage
 	Payload json.RawMessage
 }
 
 type RoomKeyRequestEvent struct {
+	Time   time.Time
+	Raw    json.RawMessage
 	RoomID string
 	KeyID  string
 }
@@ -341,13 +318,22 @@ type Client struct {
 	baseURL    *url.URL
 	restBase   string
 	wsURL      string
-	events     chan Event
+
+	// SyncEvents controls whether handlers run inline or in their own goroutines.
+	// The default matches discordgo: false means concurrent dispatch.
+	SyncEvents bool
 
 	ddp  *ddpConn
 	e2ee *e2eeManager
 
 	closeOnce sync.Once
 	closed    chan struct{}
+
+	handlersMu            sync.RWMutex
+	handlers              map[string][]*eventHandlerInstance
+	onceHandlers          map[string][]*eventHandlerInstance
+	interfaceHandlers     []*eventHandlerInstance
+	interfaceOnceHandlers []*eventHandlerInstance
 
 	mu          sync.RWMutex
 	session     Session
@@ -380,9 +366,6 @@ func New(cfg Config) (*Client, error) {
 	if cfg.Logger == nil {
 		cfg.Logger = slog.Default()
 	}
-	if cfg.EventBuffer <= 0 {
-		cfg.EventBuffer = defaultEventBuffer
-	}
 	if cfg.DataDir == "" && (cfg.E2EE.Enabled || cfg.PersistSession) {
 		cfg.DataDir = defaultPersistenceDir
 	}
@@ -395,7 +378,6 @@ func New(cfg Config) (*Client, error) {
 		baseURL:          baseURL,
 		restBase:         strings.TrimRight(baseURL.String(), "/") + "/api/v1",
 		wsURL:            wsURL,
-		events:           make(chan Event, cfg.EventBuffer),
 		closed:           make(chan struct{}),
 		rooms:            make(map[string]*Room),
 		subsByID:         make(map[string]*Subscription),
@@ -455,7 +437,7 @@ func (c *Client) Connect(ctx context.Context) error {
 		}()
 	}
 
-	c.emit(Event{Kind: EventConnected, Time: time.Now()})
+	c.emit(&ConnectEvent{Time: time.Now()})
 	c.log.Debug("connect: ready")
 	return nil
 }
@@ -467,12 +449,6 @@ func (c *Client) Close() error {
 		err = c.ddp.close()
 	})
 	return err
-}
-
-// Events returns the client event stream.
-// Consumers should select on Done instead of ranging forever over Events.
-func (c *Client) Events() <-chan Event {
-	return c.events
 }
 
 // Done is closed when the client shuts down.
@@ -1159,32 +1135,12 @@ func (c *Client) subscribeUserStreams(ctx context.Context) error {
 	return nil
 }
 
-func (c *Client) emit(event Event) {
-	select {
-	case <-c.closed:
-		return
-	default:
-	}
-	if isCriticalEvent(event.Kind) {
-		timer := time.NewTimer(criticalEventTimeout)
-		defer timer.Stop()
-		select {
-		case c.events <- event:
-		case <-c.closed:
-		case <-timer.C:
-			c.log.Warn("dropping critical rocket event because the consumer is too slow", "kind", event.Kind)
-		}
-		return
-	}
-	select {
-	case c.events <- event:
-	default:
-		c.log.Debug("dropping rocket event because the consumer is too slow", "kind", event.Kind)
-	}
+func (c *Client) emit(event interface{}) {
+	c.dispatchEvent(event)
 }
 
 func (c *Client) handleDisconnect(err error) {
-	c.emit(Event{Kind: EventDisconnected, Time: time.Now(), Err: err})
+	c.emit(&DisconnectEvent{Time: time.Now(), Err: err})
 }
 
 func (c *Client) handleDDPCollection(raw json.RawMessage, msg *ddpInbound) {
@@ -1199,16 +1155,20 @@ func (c *Client) handleDDPCollection(raw json.RawMessage, msg *ddpInbound) {
 		when := time.Now()
 		message, err := decodeMessage(msg.Fields.Args[0])
 		if err != nil {
-			c.emit(Event{Kind: EventError, Time: when, Raw: raw, Err: err})
+			c.emit(&ErrorEvent{Time: when, Raw: cloneRaw(raw), Err: err})
 			return
 		}
 		if err := c.processIncomingMessage(ctx, &message); err != nil {
 			c.log.Debug("incoming message processing failed", "error", err)
 		}
 		reaction := c.captureMessageReactionEvent(&message)
-		c.emit(Event{Kind: EventMessage, Action: msg.Msg, Time: when, Raw: raw, Message: &message})
+		c.emit(&MessageEvent{Action: msg.Msg, Time: when, Raw: cloneRaw(raw), Message: cloneMessage(&message)})
 		if reaction != nil {
-			c.emit(Event{Kind: EventMessageReaction, Action: msg.Msg, Time: when, Raw: raw, Message: &message, Reaction: reaction})
+			reaction.Action = msg.Msg
+			reaction.Time = when
+			reaction.Raw = cloneRaw(raw)
+			reaction.Message = cloneMessage(&message)
+			c.emit(reaction)
 		}
 	case "stream-notify-room":
 		c.handleRoomStreamEvent(raw, msg)
@@ -1234,7 +1194,7 @@ func (c *Client) handleRoomStreamEvent(raw json.RawMessage, msg *ddpInbound) {
 		var typing bool
 		_ = json.Unmarshal(msg.Fields.Args[0], &username)
 		_ = json.Unmarshal(msg.Fields.Args[1], &typing)
-		c.emit(Event{Kind: EventTyping, Time: when, Raw: raw, Typing: &TypingEvent{RoomID: roomID, Username: username, Typing: typing}})
+		c.emit(&TypingEvent{Time: when, Raw: cloneRaw(raw), RoomID: roomID, Username: username, Typing: typing})
 	case "deleteMessage":
 		if len(msg.Fields.Args) == 0 {
 			return
@@ -1243,11 +1203,11 @@ func (c *Client) handleRoomStreamEvent(raw json.RawMessage, msg *ddpInbound) {
 			ID string `json:"_id"`
 		}
 		if err := json.Unmarshal(msg.Fields.Args[0], &payload); err != nil {
-			c.emit(Event{Kind: EventError, Time: when, Raw: raw, Err: err})
+			c.emit(&ErrorEvent{Time: when, Raw: cloneRaw(raw), Err: err})
 			return
 		}
 		c.removeMessageReactions(payload.ID)
-		c.emit(Event{Kind: EventMessageDeleted, Time: when, Raw: raw, Delete: &DeleteEvent{RoomID: roomID, MessageID: payload.ID}})
+		c.emit(&DeleteEvent{Time: when, Raw: cloneRaw(raw), RoomID: roomID, MessageID: payload.ID})
 	case "user-activity":
 		if len(msg.Fields.Args) < 2 {
 			return
@@ -1256,7 +1216,9 @@ func (c *Client) handleRoomStreamEvent(raw json.RawMessage, msg *ddpInbound) {
 		payload.RoomID = roomID
 		_ = json.Unmarshal(msg.Fields.Args[0], &payload.Username)
 		_ = json.Unmarshal(msg.Fields.Args[1], &payload.Activities)
-		c.emit(Event{Kind: EventUserActivity, Time: when, Raw: raw, Activity: &payload})
+		payload.Time = when
+		payload.Raw = cloneRaw(raw)
+		c.emit(&payload)
 	}
 }
 
@@ -1275,12 +1237,12 @@ func (c *Client) handleUserStreamEvent(ctx context.Context, raw json.RawMessage,
 		}
 		var action string
 		if err := json.Unmarshal(msg.Fields.Args[0], &action); err != nil {
-			c.emit(Event{Kind: EventError, Time: when, Raw: raw, Err: err})
+			c.emit(&ErrorEvent{Time: when, Raw: cloneRaw(raw), Err: err})
 			return
 		}
 		room, err := decodeRoomChange(msg.Fields.Args[1])
 		if err != nil {
-			c.emit(Event{Kind: EventError, Time: when, Raw: raw, Err: err})
+			c.emit(&ErrorEvent{Time: when, Raw: cloneRaw(raw), Err: err})
 			return
 		}
 		if action == "removed" {
@@ -1295,19 +1257,19 @@ func (c *Client) handleUserStreamEvent(ctx context.Context, raw json.RawMessage,
 		if action != "removed" && (watched || watchAll) {
 			_ = c.SubscribeRoom(ctx, room.ID)
 		}
-		c.emit(Event{Kind: EventRoomChanged, Action: action, Time: when, Raw: raw, Room: &room})
+		c.emit(&RoomEvent{Action: action, Time: when, Raw: cloneRaw(raw), Room: cloneRoom(&room)})
 	case "subscriptions-changed":
 		if len(msg.Fields.Args) < 2 {
 			return
 		}
 		var action string
 		if err := json.Unmarshal(msg.Fields.Args[0], &action); err != nil {
-			c.emit(Event{Kind: EventError, Time: when, Raw: raw, Err: err})
+			c.emit(&ErrorEvent{Time: when, Raw: cloneRaw(raw), Err: err})
 			return
 		}
 		sub, err := decodeSubscriptionChange(msg.Fields.Args[1])
 		if err != nil {
-			c.emit(Event{Kind: EventError, Time: when, Raw: raw, Err: err})
+			c.emit(&ErrorEvent{Time: when, Raw: cloneRaw(raw), Err: err})
 			return
 		}
 		if action == "removed" {
@@ -1320,30 +1282,34 @@ func (c *Client) handleUserStreamEvent(ctx context.Context, raw json.RawMessage,
 				c.log.Debug("subscription e2ee update failed", "error", err, "room_id", sub.RoomID)
 			}
 		}
-		c.emit(Event{Kind: EventSubscriptionChanged, Action: action, Time: when, Raw: raw, Subscription: &sub})
+		c.emit(&SubscriptionEvent{Action: action, Time: when, Raw: cloneRaw(raw), Subscription: cloneSubscription(&sub)})
 	case "message":
 		if len(msg.Fields.Args) == 0 {
 			return
 		}
 		message, err := decodeMessage(msg.Fields.Args[0])
 		if err != nil {
-			c.emit(Event{Kind: EventError, Time: when, Raw: raw, Err: err})
+			c.emit(&ErrorEvent{Time: when, Raw: cloneRaw(raw), Err: err})
 			return
 		}
 		if err := c.processIncomingMessage(ctx, &message); err != nil {
 			c.log.Debug("user-stream message processing failed", "error", err)
 		}
 		reaction := c.captureMessageReactionEvent(&message)
-		c.emit(Event{Kind: EventMessage, Action: msg.Msg, Time: when, Raw: raw, Message: &message})
+		c.emit(&MessageEvent{Action: msg.Msg, Time: when, Raw: cloneRaw(raw), Message: cloneMessage(&message)})
 		if reaction != nil {
-			c.emit(Event{Kind: EventMessageReaction, Action: msg.Msg, Time: when, Raw: raw, Message: &message, Reaction: reaction})
+			reaction.Action = msg.Msg
+			reaction.Time = when
+			reaction.Raw = cloneRaw(raw)
+			reaction.Message = cloneMessage(&message)
+			c.emit(reaction)
 		}
 	case "notification":
 		if len(msg.Fields.Args) == 0 {
 			return
 		}
 		payload := append(json.RawMessage(nil), msg.Fields.Args[0]...)
-		c.emit(Event{Kind: EventNotification, Time: when, Raw: raw, Notification: &NotificationEvent{Payload: payload}})
+		c.emit(&NotificationEvent{Time: when, Raw: cloneRaw(raw), Payload: payload})
 	case "e2ekeyRequest":
 		if len(msg.Fields.Args) < 2 {
 			return
@@ -1355,7 +1321,7 @@ func (c *Client) handleUserStreamEvent(ctx context.Context, raw json.RawMessage,
 			if err := c.e2ee.handleKeyRequest(ctx, roomID, keyID); err != nil {
 				c.log.Debug("room key request handling failed", "error", err, "room_id", roomID)
 			}
-			c.emit(Event{Kind: EventRoomKeyRequested, Time: when, Raw: raw, KeyRequest: &RoomKeyRequestEvent{RoomID: roomID, KeyID: keyID}})
+			c.emit(&RoomKeyRequestEvent{Time: when, Raw: cloneRaw(raw), RoomID: roomID, KeyID: keyID})
 		}
 	}
 }
@@ -1890,13 +1856,4 @@ func attachmentURL(attachment Attachment) string {
 		}
 	}
 	return ""
-}
-
-func isCriticalEvent(kind EventKind) bool {
-	switch kind {
-	case EventConnected, EventDisconnected, EventError:
-		return true
-	default:
-		return false
-	}
 }

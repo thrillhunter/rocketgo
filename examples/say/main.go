@@ -9,7 +9,7 @@ import (
 	"strings"
 	"syscall"
 
-	rocket "github.com/thrillhunter21/rocketgo"
+	rocket "github.com/thrillhunter/rocketgo"
 )
 
 var config = rocket.Config{
@@ -42,6 +42,15 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
+	client.AddHandler(func(client *rocket.Client, event *rocket.MessageEvent) {
+		if event == nil {
+			return
+		}
+		if err := handleMessage(ctx, client, event.Message); err != nil {
+			slog.Error("handle message failed", "error", err)
+		}
+	})
+
 	if err := client.Connect(ctx); err != nil {
 		fmt.Fprintf(os.Stderr, "connect failed: %v\n", err)
 		os.Exit(1)
@@ -53,20 +62,9 @@ func main() {
 
 	slog.Info("say example connected", "user_id", client.Session().UserID)
 
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-client.Done():
-			return
-		case event := <-client.Events():
-			if event.Kind != rocket.EventMessage || event.Message == nil {
-				continue
-			}
-			if err := handleMessage(ctx, client, event.Message); err != nil {
-				slog.Error("handle message failed", "error", err)
-			}
-		}
+	select {
+	case <-ctx.Done():
+	case <-client.Done():
 	}
 }
 

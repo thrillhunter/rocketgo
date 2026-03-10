@@ -1,4 +1,4 @@
-module github.com/thrillhunter21/rocketgo
+module github.com/thrillhunter/rocketgo
 
 go 1.25.5
 

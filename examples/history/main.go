@@ -7,7 +7,7 @@ import (
 	"os"
 	"strings"
 
-	rocket "github.com/thrillhunter21/rocketgo"
+	rocket "github.com/thrillhunter/rocketgo"
 )
 
 var config = rocket.Config{

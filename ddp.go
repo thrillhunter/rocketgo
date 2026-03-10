@@ -235,11 +235,11 @@ func (d *ddpConn) reconnect(cause error) error {
 		cancel()
 
 		if err == nil {
-			d.client.emit(Event{Kind: EventConnected, Time: time.Now()})
+			d.client.emit(&ConnectEvent{Time: time.Now()})
 			go d.postReconnectSync()
 			return nil
 		}
-		d.client.emit(Event{Kind: EventError, Time: time.Now(), Err: err})
+		d.client.emit(&ErrorEvent{Time: time.Now(), Err: err})
 
 		select {
 		case <-time.After(backoff):

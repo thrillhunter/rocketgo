@@ -22,7 +22,7 @@ var config = rocket.Config{
 	Logger:         nil,
 	E2EE: rocket.E2EEConfig{
 		Enabled:  true,
-		Password: "set-your-e2ee-password-or-12-word-recovery-phrase",
+		Password: "e2ee-password", // any stable string for new accounts, or the existing recovery phrase
 	},
 }
 

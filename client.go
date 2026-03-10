@@ -46,9 +46,8 @@ type Config struct {
 
 type E2EEConfig struct {
 	Enabled bool
-	// Password is the E2EE unlock secret for the user's encrypted private key.
-	// It can be a custom stable string, or Rocket.Chat's generated recovery phrase
-	// such as the official 12-word E2EE phrase.
+	// Password unlocks the user's encrypted private key. For new accounts this
+	// can be any stable string; for existing accounts use the recovery phrase.
 	Password string
 }
 

@@ -55,7 +55,7 @@ func main() {
 		Logger:         slog.New(slog.NewTextHandler(os.Stdout, nil)),
 		E2EE: rocket.E2EEConfig{
 			Enabled:  true,
-			Password: "set-a-stable-e2ee-password",
+			Password: "e2ee-password",
 		},
 	})
 	if err != nil {
@@ -109,21 +109,19 @@ Enable E2EE with:
 ```go
 E2EE: rocket.E2EEConfig{
 	Enabled:  true,
-	Password: "your-stable-e2ee-password-or-recovery-phrase",
+	Password: "e2ee-password",
 }
 ```
 
-`E2EE.Password` is the unlock secret for the encrypted private key.
+`E2EE.Password` is the secret used to encrypt and decrypt the user's private key.
 
-If the account already uses Rocket.Chat E2EE, set `E2EE.Password` to the exact phrase Rocket.Chat gave that account, including the official generated recovery phrase form such as the 12-word phrase.
+For a **new account** that has never used E2EE, this can be any stable string you choose. The client will generate a key pair and protect it with this value.
 
-No separate import or recovery step is required. The client fetches the existing encrypted private key from the server and unlocks it with `E2EE.Password`.
+For an **existing account** that already has E2EE set up, set this to the exact password or recovery phrase that account was given by Rocket.Chat (e.g. the 12-word mnemonic).
 
-If the account does not have E2EE keys yet, the client will generate an identity and protect it with the same value.
+No separate import or recovery step is needed. The client fetches the encrypted private key from the server and unlocks it with `E2EE.Password`. The identity is also cached locally under `.rocket/`.
 
-The encrypted identity is also persisted locally under `.rocket/...`.
-
-For encrypted rooms, outgoing text and file uploads are encrypted automatically, and incoming messages and attachments are decrypted when the required room keys are available.
+Outgoing text and file uploads in encrypted rooms are encrypted automatically, and incoming messages and attachments are decrypted when the required room keys are available.
 
 ## Notes
 

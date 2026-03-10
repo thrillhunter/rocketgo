@@ -15,13 +15,11 @@ go get github.com/thrillhunter/rocketgo
 
 ### Usage
 
-Import the package into your project.
-
 ```go
 import rocket "github.com/thrillhunter/rocketgo"
 ```
 
-Create a client, register handlers, then connect:
+Create a client, register handlers, and connect:
 
 ```go
 ctx := context.Background()
@@ -33,10 +31,6 @@ client, err := rocket.New(rocket.Config{
 	DataDir:        ".rocket",
 	PersistSession: true,
 	AutoReconnect:  true,
-	E2EE: rocket.E2EEConfig{
-		Enabled:  true,
-		Password: "e2ee-password",
-	},
 })
 if err != nil {
 	panic(err)
@@ -55,21 +49,17 @@ if err := client.WatchJoinedRooms(ctx); err != nil {
 }
 ```
 
-Handlers are dispatched concurrently.
+Each handler runs in its own goroutine. Use `AddHandler` for persistent
+handlers and `AddHandlerOnce` for one-shot handlers. Pass
+`func(c *rocket.Client, interface{})` as the signature to receive every event
+regardless of type.
 
-## Documentation
-
-Full reference on [pkg.go.dev](https://pkg.go.dev/github.com/thrillhunter/rocketgo).
-
-Register typed handlers with `AddHandler` or `AddHandlerOnce`. Use
-`func(c *rocket.Client, interface{})` as the signature to receive every event.
+Full API reference on [pkg.go.dev](https://pkg.go.dev/github.com/thrillhunter/rocketgo).
 
 ## Examples
 
-- [examples/say](https://github.com/thrillhunter/rocketgo/tree/main/examples/say) - `;say hello world` echo bot
-- [examples/history](https://github.com/thrillhunter/rocketgo/tree/main/examples/history) - list joined rooms or print room history
-
-Run them with:
+- [examples/say](https://github.com/thrillhunter/rocketgo/tree/main/examples/say) — echo bot that responds to `;say hello world`
+- [examples/history](https://github.com/thrillhunter/rocketgo/tree/main/examples/history) — list joined rooms or print room history
 
 ```sh
 go run ./examples/say
@@ -78,31 +68,34 @@ go run ./examples/history
 
 ## E2EE
 
-Set `E2EE.Enabled` and give it a password:
+Enable end-to-end encryption by setting `E2EE.Enabled` and providing a
+password:
 
 ```go
-E2EE: rocket.E2EEConfig{
-	Enabled:  true,
-	Password: "e2ee-password",
-}
+client, err := rocket.New(rocket.Config{
+	ServerURL: "https://chat.example.com",
+	Login:     "bot-user",
+	Password:  "bot-password",
+	E2EE: rocket.E2EEConfig{
+		Enabled:  true,
+		Password: "e2ee-password",
+	},
+})
 ```
 
-`E2EE.Password` is what encrypts and decrypts the user's private key.
+The password encrypts and decrypts the user's private key. For a new account
+this can be any stable string you choose — the client will generate a keypair
+and protect it with that value. For an existing account, use the password or
+recovery phrase already associated with that account's E2EE setup, including
+the 12-word mnemonic if that is what the server assigned.
 
-For a new account, this can be any stable string you choose. The client will
-generate a keypair and protect it with that value.
-
-For an existing account, use the password or recovery phrase that account
-already uses for Rocket.Chat E2EE, including the 12-word mnemonic if that is
-what the server gave you.
-
-Once connected, encrypted rooms work like normal rooms. Outgoing messages and
-file uploads are encrypted, incoming ones are decrypted, and the local keypair
-and session tokens are cached under `.rocket/`.
+Once connected, encrypted rooms work transparently. Outgoing messages and file
+uploads are encrypted, incoming ones are decrypted, and the keypair and session
+tokens are cached under `DataDir` (defaults to `.rocket/`).
 
 ## Notes
 
-- `WatchJoinedRooms()` subscribes to every room the user is in.
-- `ParseCommand()` / `Message.ParseCommand()` are useful for local commands in encrypted rooms.
+- `WatchJoinedRooms()` subscribes to every room the user belongs to.
+- `ParseCommand()` / `Message.ParseCommand()` handle prefixed commands, useful in encrypted rooms where server-side slash commands don't work.
 - Logger is optional and defaults to `slog.Default()`.
-- Downloads are restricted to the same origin by default. If you need external hosts, set `AllowedDownloadHosts`.
+- Downloads are restricted to the same origin. Set `AllowedDownloadHosts` if you need external hosts.

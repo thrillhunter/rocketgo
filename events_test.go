@@ -56,18 +56,3 @@ func TestAddHandlerOnce(t *testing.T) {
 	t.Fatalf("expected one call, got %d", calls.Load())
 }
 
-func TestSyncEvents(t *testing.T) {
-	client := newTestClient()
-	client.SyncEvents = true
-
-	called := false
-	client.AddHandler(func(c *Client, event *MessageEvent) {
-		called = true
-	})
-
-	client.dispatchEvent(&MessageEvent{Message: &Message{Text: "sync"}})
-
-	if !called {
-		t.Fatal("expected synchronous handler to run before dispatch returns")
-	}
-}

@@ -55,8 +55,7 @@ if err := client.WatchJoinedRooms(ctx); err != nil {
 }
 ```
 
-Handlers run concurrently by default. Set `client.SyncEvents = true` if you
-want inline dispatch instead.
+Handlers are dispatched concurrently.
 
 ## Documentation
 

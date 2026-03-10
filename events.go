@@ -233,10 +233,6 @@ func (c *Client) snapshotHandlers(eventType string) (
 
 func (c *Client) callHandlers(instances []*eventHandlerInstance, event interface{}) {
 	for _, instance := range instances {
-		if c.SyncEvents {
-			instance.eventHandler(c, event)
-			continue
-		}
 		go instance.eventHandler(c, event)
 	}
 }

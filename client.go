@@ -319,10 +319,6 @@ type Client struct {
 	restBase   string
 	wsURL      string
 
-	// SyncEvents controls whether handlers run inline or in their own goroutines.
-	// false (default) means concurrent dispatch, true means inline.
-	SyncEvents bool
-
 	ddp  *ddpConn
 	e2ee *e2eeManager
 

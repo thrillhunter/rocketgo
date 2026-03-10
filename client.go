@@ -654,84 +654,28 @@ func (c *Client) ReplyText(ctx context.Context, roomID, threadMessageID, text st
 	})
 }
 
+// SendMessage sends a message via REST. buildOutgoingMessage handles E2EE
+// encryption when needed, and REST avoids the DDP Match validation that
+// rejects alias/avatar/emoji on some server versions.
 func (c *Client) SendMessage(ctx context.Context, msg OutgoingMessage) (*Message, error) {
 	msg.RoomID = strings.TrimSpace(msg.RoomID)
 	if msg.RoomID == "" {
 		return nil, errors.New("rocket: room id is required")
 	}
 
-	room, err := c.getOrFetchRoom(ctx, msg.RoomID)
+	payload, err := c.buildOutgoingMessage(ctx, msg)
 	if err != nil {
 		return nil, err
-	}
-
-	// encrypted rooms must go through DDP so the E2EE layer can encrypt the payload
-	if room.Encrypted {
-		return c.sendMessageDDP(ctx, msg, room)
-	}
-
-	return c.sendMessageREST(ctx, msg)
-}
-
-// sendMessageREST sends via POST /chat.postMessage. used for plain rooms because
-// the DDP sendMessage method rejects alias/avatar/emoji on some server versions.
-func (c *Client) sendMessageREST(ctx context.Context, msg OutgoingMessage) (*Message, error) {
-	body := map[string]any{
-		"roomId": msg.RoomID,
-		"text":   msg.Text,
-	}
-	if msg.ID != "" {
-		body["_id"] = strings.TrimSpace(msg.ID)
-	}
-	if msg.ThreadMessageID != "" {
-		body["tmid"] = strings.TrimSpace(msg.ThreadMessageID)
-	}
-	if msg.Alias != "" {
-		body["alias"] = msg.Alias
-	}
-	if msg.Emoji != "" {
-		body["emoji"] = msg.Emoji
-	}
-	if msg.Avatar != "" {
-		body["avatar"] = msg.Avatar
-	}
-	if msg.Groupable != nil {
-		body["groupable"] = *msg.Groupable
-	}
-	if len(msg.CustomFields) > 0 {
-		body["customFields"] = msg.CustomFields
 	}
 
 	var resp struct {
 		Success bool            `json:"success"`
 		Message json.RawMessage `json:"message"`
 	}
-	if err := c.doJSON(ctx, http.MethodPost, "/chat.postMessage", nil, body, &resp); err != nil {
+	if err := c.doJSON(ctx, http.MethodPost, "/chat.sendMessage", nil, map[string]any{"message": payload}, &resp); err != nil {
 		return nil, err
 	}
 	message, err := decodeRequiredMessage(resp.Message)
-	if err != nil {
-		return nil, err
-	}
-	if err := c.processIncomingMessage(ctx, &message); err != nil {
-		c.log.Debug("post-send message processing failed", "error", err)
-	}
-	c.rememberMessageReactions(&message)
-	return &message, nil
-}
-
-// sendMessageDDP sends via the DDP websocket. used for E2EE rooms since encryption
-// happens inside buildOutgoingMessage before the payload is sent.
-func (c *Client) sendMessageDDP(ctx context.Context, msg OutgoingMessage, room *Room) (*Message, error) {
-	payload, err := c.buildOutgoingMessage(ctx, msg)
-	if err != nil {
-		return nil, err
-	}
-	result, err := c.ddp.call(ctx, "sendMessage", payload)
-	if err != nil {
-		return nil, err
-	}
-	message, err := decodeMessage(result)
 	if err != nil {
 		return nil, err
 	}

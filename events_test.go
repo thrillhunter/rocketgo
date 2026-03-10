@@ -19,7 +19,7 @@ func TestAddHandlerDispatch(t *testing.T) {
 	client := newTestClient()
 	received := make(chan *MessageEvent, 1)
 
-	client.AddHandler(func(_ *Client, event *MessageEvent) {
+	client.AddHandler(func(c *Client, event *MessageEvent) {
 		received <- event
 	})
 
@@ -39,7 +39,7 @@ func TestAddHandlerOnce(t *testing.T) {
 	client := newTestClient()
 	var calls atomic.Int32
 
-	client.AddHandlerOnce(func(_ *Client, event *MessageEvent) {
+	client.AddHandlerOnce(func(c *Client, event *MessageEvent) {
 		calls.Add(1)
 	})
 
@@ -61,7 +61,7 @@ func TestSyncEvents(t *testing.T) {
 	client.SyncEvents = true
 
 	called := false
-	client.AddHandler(func(_ *Client, event *MessageEvent) {
+	client.AddHandler(func(c *Client, event *MessageEvent) {
 		called = true
 	})
 

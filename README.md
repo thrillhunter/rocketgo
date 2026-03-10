@@ -44,9 +44,6 @@ if err != nil {
 defer client.Close()
 
 client.AddHandler(func(c *rocket.Client, event *rocket.MessageEvent) {
-	if event == nil || event.Message == nil {
-		return
-	}
 	fmt.Println(event.Message.Text)
 })
 
@@ -58,24 +55,15 @@ if err := client.WatchJoinedRooms(ctx); err != nil {
 }
 ```
 
-Handlers run concurrently by default, the same way `discordgo` does. If you
-want inline dispatch instead, set `client.SyncEvents = true`.
-
-See the examples below for complete programs.
+Handlers run concurrently by default. Set `client.SyncEvents = true` if you
+want inline dispatch instead.
 
 ## Documentation
 
-Good places to start:
+Full reference on [pkg.go.dev](https://pkg.go.dev/github.com/thrillhunter/rocketgo).
 
-- `New` / `Config`
-- `Client.AddHandler`
-- `Client.AddHandlerOnce`
-- `Client.Connect`
-- `Client.WatchJoinedRooms`
-- `ParseCommand`
-
-You can also register `func(*rocket.Client, interface{})` to receive every
-event.
+Register typed handlers with `AddHandler` or `AddHandlerOnce`. Use
+`func(c *rocket.Client, interface{})` as the signature to receive every event.
 
 ## Examples
 

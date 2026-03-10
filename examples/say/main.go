@@ -42,11 +42,8 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	client.AddHandler(func(client *rocket.Client, event *rocket.MessageEvent) {
-		if event == nil {
-			return
-		}
-		if err := handleMessage(ctx, client, event.Message); err != nil {
+	client.AddHandler(func(c *rocket.Client, event *rocket.MessageEvent) {
+		if err := handleMessage(ctx, c, event.Message); err != nil {
 			slog.Error("handle message failed", "error", err)
 		}
 	})
@@ -69,9 +66,6 @@ func main() {
 }
 
 func handleMessage(ctx context.Context, client *rocket.Client, message *rocket.Message) error {
-	if message == nil {
-		return nil
-	}
 	if message.User.ID == client.Session().UserID {
 		return nil
 	}
@@ -97,9 +91,6 @@ func handleMessage(ctx context.Context, client *rocket.Client, message *rocket.M
 }
 
 func replyTarget(message *rocket.Message) string {
-	if message == nil {
-		return ""
-	}
 	if threadID := strings.TrimSpace(message.ThreadMessageID); threadID != "" {
 		return threadID
 	}

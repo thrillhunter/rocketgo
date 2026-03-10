@@ -320,7 +320,7 @@ type Client struct {
 	wsURL      string
 
 	// SyncEvents controls whether handlers run inline or in their own goroutines.
-	// The default matches discordgo: false means concurrent dispatch.
+	// false (default) means concurrent dispatch, true means inline.
 	SyncEvents bool
 
 	ddp  *ddpConn

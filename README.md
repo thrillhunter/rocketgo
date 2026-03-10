@@ -59,8 +59,7 @@ Full API reference on [pkg.go.dev](https://pkg.go.dev/github.com/thrillhunter/ro
 ## Sending Messages
 
 Use `SendText()` for simple messages, or `SendMessage()` when you need extra
-message fields such as aliases, avatars, emoji avatars, threads, or custom
-fields.
+fields such as aliases, avatars, emoji avatars, threads, or custom fields.
 
 ```go
 _, err := client.SendMessage(ctx, rocket.OutgoingMessage{
@@ -74,11 +73,18 @@ if err != nil {
 }
 ```
 
-This lets one real Rocket.Chat user, such as a webhook bot, present messages
+`SendMessage` routes automatically based on the room type:
+
+- **Plain rooms** — uses `POST /chat.postMessage` via REST. This correctly
+  handles `Alias`, `Avatar`, and `Emoji` on all Rocket.Chat server versions.
+- **E2EE rooms** — uses the DDP websocket so the client can encrypt the
+  payload before it leaves the process.
+
+This lets one real Rocket.Chat account, such as a webhook bot, present messages
 with a custom display name or avatar. The authenticated account is still the
 real sender on the Rocket.Chat side.
 
-Rocket.Chat may require the sending account to have the `message-impersonate`
+Rocket.Chat requires the sending account to have the `message-impersonate`
 permission before it accepts `Alias`, `Avatar`, or `Emoji`.
 
 ## Examples

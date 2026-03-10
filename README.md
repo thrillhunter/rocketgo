@@ -1,31 +1,16 @@
 # RocketGo
 
-RocketGo is a Go package for Rocket.Chat.
-
-It provides a stateful client with REST helpers, DDP websocket events, session persistence, and end-to-end encryption support. The goal is to behave like a real Rocket.Chat client rather than a thin REST wrapper.
-
-## Features
-
-- Login with username/email + password, or `UserID` + `AuthToken`
-- DDP event stream for messages, reactions, typing, room changes, subscription changes, notifications, and deletes
-- Send, edit, reply, delete, react, pin, star, mark read, and typing helpers
-- Room and subscription caches with lookup helpers
-- File upload and download support, including encrypted attachments
-- E2EE identity, room key, and key request handling
-- Session and E2EE persistence under `.rocket/`
-- Safe downloads with same-origin enforcement and optional host allowlist
+RocketGo is a [Go](https://golang.org/) package that provides bindings to the
+[Rocket.Chat](https://rocket.chat/) API. It covers both REST and realtime (DDP
+over websocket), handles session persistence, and optionally does E2EE so your
+bot can talk in encrypted rooms without any extra work.
 
 ## Getting Started
 
 ### Installing
 
-For local use from this folder:
-
-```sh
-go mod tidy
-```
-
-Install the latest version with:
+This assumes you already have a working Go environment, if not please see
+[this page](https://golang.org/doc/install) first.
 
 ```sh
 go get github.com/thrillhunter21/rocketgo
@@ -33,54 +18,50 @@ go get github.com/thrillhunter21/rocketgo
 
 ### Usage
 
+Import the package into your project.
+
 ```go
-package main
+import rocket "github.com/thrillhunter21/rocketgo"
+```
 
-import (
-	"context"
-	"log/slog"
-	"os"
+Create a client and connect:
 
-	rocket "github.com/thrillhunter21/rocketgo"
-)
+```go
+client, err := rocket.New(rocket.Config{
+    ServerURL:      "https://chat.example.com",
+    Login:          "bot-user",
+    Password:       "bot-password",
+    DataDir:        ".rocket",
+    PersistSession: true,
+    AutoReconnect:  true,
+    E2EE: rocket.E2EEConfig{
+        Enabled:  true,
+        Password: "e2ee-password",
+    },
+})
+if err != nil {
+    panic(err)
+}
+defer client.Close()
 
-func main() {
-	client, err := rocket.New(rocket.Config{
-		ServerURL:      "https://chat.example.com",
-		Login:          "bot-user",
-		Password:       "bot-password",
-		DataDir:        ".rocket",
-		PersistSession: true,
-		AutoReconnect:  true,
-		Logger:         slog.New(slog.NewTextHandler(os.Stdout, nil)),
-		E2EE: rocket.E2EEConfig{
-			Enabled:  true,
-			Password: "e2ee-password",
-		},
-	})
-	if err != nil {
-		panic(err)
-	}
-	defer client.Close()
-
-	if err := client.Connect(context.Background()); err != nil {
-		panic(err)
-	}
-	if err := client.WatchJoinedRooms(context.Background()); err != nil {
-		panic(err)
-	}
+if err := client.Connect(context.Background()); err != nil {
+    panic(err)
+}
+if err := client.WatchJoinedRooms(context.Background()); err != nil {
+    panic(err)
 }
 ```
 
-See the examples below for complete runnable programs.
+See Documentation and Examples below for more.
 
 ## Documentation
 
-The exported API is documented in code and is intended to be straightforward to explore with Go reference tooling.
+The RocketGo code is documented with Go doc comments. Go reference presents
+that in a nice format.
 
-Useful starting points:
+Good places to start:
 
-- `New`
+- `New` / `Config`
 - `Client.Connect`
 - `Client.WatchJoinedRooms`
 - `Client.Events`
@@ -88,48 +69,45 @@ Useful starting points:
 
 ## Examples
 
-- `examples/say`
-  - Watches joined rooms and replies to `;say hello world`
-- `examples/history`
-  - Lists joined rooms or loads room history for a chosen room
+- [examples/say](https://github.com/thrillhunter21/rocketgo/tree/main/examples/say) - a `;say hello world` echo bot
+- [examples/history](https://github.com/thrillhunter21/rocketgo/tree/main/examples/history) - list joined rooms or print room history
 
-Run them with:
+Both have their config at the top of the file so you can fill it in and run:
 
 ```sh
 go run ./examples/say
 go run ./examples/history
 ```
 
-Both examples keep their config inline at the top of the file so you can edit and run them quickly.
-
 ## E2EE
 
-Enable E2EE with:
+Set `E2EE.Enabled` and give it a password:
 
 ```go
 E2EE: rocket.E2EEConfig{
-	Enabled:  true,
-	Password: "e2ee-password",
+    Enabled:  true,
+    Password: "e2ee-password",
 }
 ```
 
-`E2EE.Password` is the secret used to encrypt and decrypt the user's private key.
+`E2EE.Password` is what encrypts/decrypts the user's private key on the server.
 
-For a **new account** that has never used E2EE, this can be any stable string you choose. The client will generate a key pair and protect it with this value.
+If the account has never used E2EE before, this can be any string you want --
+the client will generate a keypair and protect it with that value. If the
+account already has E2EE set up (e.g. through the Rocket.Chat web UI), use
+whatever password or recovery phrase was originally set, including the 12-word
+mnemonic if that's what it was.
 
-For an **existing account** that already has E2EE set up, set this to the exact password or recovery phrase that account was given by Rocket.Chat (e.g. the 12-word mnemonic).
-
-No separate import or recovery step is needed. The client fetches the encrypted private key from the server and unlocks it with `E2EE.Password`. The identity is also cached locally under `.rocket/`.
-
-Outgoing text and file uploads in encrypted rooms are encrypted automatically, and incoming messages and attachments are decrypted when the required room keys are available.
+Once connected, encrypted rooms just work -- outgoing messages and file uploads
+get encrypted, incoming ones get decrypted. The keypair and session tokens are
+cached under `.rocket/` so you don't re-derive everything on every restart.
 
 ## Notes
 
-- `WatchJoinedRooms()` is the simplest way to start receiving room message events.
-- `ParseCommand()` and `Message.ParseCommand()` are useful for local commands like `;say` inside encrypted rooms.
-- The logger is optional. If omitted, the package uses `slog.Default()`.
-- If your files are served from a trusted external host, set `AllowedDownloadHosts`.
-
-## Status
-
-This package is a good fit for an initial public `v0.x` release.
+- `WatchJoinedRooms()` subscribes to every room the user is in. Easiest way to
+  get going.
+- `ParseCommand()` / `Message.ParseCommand()` parse things like `;say hello`
+  locally, which is handy in encrypted rooms where slash commands don't work.
+- Logger is optional, defaults to `slog.Default()`.
+- Downloads are restricted to the same origin by default. If you need external
+  hosts, set `AllowedDownloadHosts`.
